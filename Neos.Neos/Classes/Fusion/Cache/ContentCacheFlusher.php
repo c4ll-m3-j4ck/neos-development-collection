@@ -18,7 +18,7 @@ use Neos\ContentRepository\Core\ContentRepository;
 use Neos\ContentRepository\Core\NodeType\NodeType;
 use Neos\ContentRepository\Core\NodeType\NodeTypeName;
 use Neos\ContentRepository\Core\Projection\ContentGraph\NodeAggregate;
-use Neos\ContentRepository\Core\Projection\Workspace\Workspace;
+use Neos\ContentRepository\Core\SharedModel\Workspace\Workspace;
 use Neos\ContentRepository\Core\SharedModel\ContentRepository\ContentRepositoryId;
 use Neos\ContentRepository\Core\SharedModel\Exception\NodeTypeNotFound;
 use Neos\ContentRepository\Core\SharedModel\Node\NodeAggregateId;

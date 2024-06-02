@@ -15,11 +15,8 @@ declare(strict_types=1);
 namespace Neos\Neos\Service;
 
 use Neos\ContentRepository\Core\Feature\WorkspaceCreation\Command\CreateWorkspace;
-use Neos\ContentRepository\Core\SharedModel\User\UserId;
 use Neos\ContentRepository\Core\SharedModel\Workspace\ContentStreamId;
-use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceDescription;
 use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceName;
-use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceTitle;
 use Neos\ContentRepositoryRegistry\ContentRepositoryRegistry;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Core\Bootstrap;
@@ -131,10 +128,7 @@ final class EditorContentStreamZookeeper
             CreateWorkspace::create(
                 $workspaceName,
                 $baseWorkspace->workspaceName,
-                new WorkspaceTitle((string) $user->getName()),
-                new WorkspaceDescription(''),
                 $editorsNewContentStreamId,
-                UserId::fromString($this->persistenceManager->getIdentifierByObject($user))
             )
         );
     }

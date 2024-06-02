@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace Neos\ContentRepository\Core\Feature\WorkspaceModification\Event;
 
 use Neos\ContentRepository\Core\EventStore\EventInterface;
-use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceDescription;
 use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceName;
-use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceTitle;
 
 /**
  * Event triggered to indicate that a workspace title or description has changed.
@@ -19,8 +17,8 @@ final readonly class WorkspaceWasRenamed implements EventInterface
 {
     public function __construct(
         public WorkspaceName $workspaceName,
-        public WorkspaceTitle $workspaceTitle,
-        public WorkspaceDescription $workspaceDescription,
+        public string $workspaceTitle,
+        public string $workspaceDescription,
     ) {
     }
 
@@ -28,8 +26,8 @@ final readonly class WorkspaceWasRenamed implements EventInterface
     {
         return new self(
             WorkspaceName::fromString($values['workspaceName']),
-            WorkspaceTitle::fromString($values['workspaceTitle']),
-            WorkspaceDescription::fromString($values['workspaceDescription']),
+            $values['workspaceTitle'],
+            $values['workspaceDescription'],
         );
     }
 

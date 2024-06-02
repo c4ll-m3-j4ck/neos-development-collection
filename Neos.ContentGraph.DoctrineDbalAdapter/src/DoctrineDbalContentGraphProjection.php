@@ -18,7 +18,7 @@ use Neos\ContentGraph\DoctrineDbalAdapter\Domain\Projection\NodeRecord;
 use Neos\ContentGraph\DoctrineDbalAdapter\Domain\Projection\NodeRelationAnchorPoint;
 use Neos\ContentGraph\DoctrineDbalAdapter\Domain\Repository\DimensionSpacePointsRepository;
 use Neos\ContentGraph\DoctrineDbalAdapter\Domain\Repository\ProjectionContentGraph;
-use Neos\ContentRepository\Core\ContentGraphFinder;
+use Neos\ContentRepository\Core\ContentGraphAdapter;
 use Neos\ContentRepository\Core\DimensionSpace\DimensionSpacePoint;
 use Neos\ContentRepository\Core\DimensionSpace\DimensionSpacePointSet;
 use Neos\ContentRepository\Core\DimensionSpace\OriginDimensionSpacePoint;
@@ -72,12 +72,12 @@ use Neos\ContentRepository\Core\SharedModel\Node\NodeAggregateClassification;
 use Neos\ContentRepository\Core\SharedModel\Node\NodeAggregateId;
 use Neos\ContentRepository\Core\SharedModel\Node\NodeName;
 use Neos\ContentRepository\Core\SharedModel\Workspace\ContentStreamId;
-use Neos\ContentRepository\Core\SharedModel\Workspace\ContentStreamState;
+use Neos\ContentRepository\Core\SharedModel\Workspace\ContentStreamStatus;
 use Neos\EventStore\Model\Event\SequenceNumber;
 use Neos\EventStore\Model\EventEnvelope;
 
 /**
- * @implements ProjectionInterface<ContentGraphFinder>
+ * @implements ProjectionInterface<ContentGraphAdapter>
  * @internal but the graph projection is api
  */
 final class DoctrineDbalContentGraphProjection implements ProjectionInterface, WithMarkStaleInterface
@@ -99,7 +99,7 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         private readonly ProjectionContentGraph $projectionContentGraph,
         private readonly ContentGraphTableNames $tableNames,
         private readonly DimensionSpacePointsRepository $dimensionSpacePointsRepository,
-        private readonly ContentGraphFinder $contentGraphFinder
+        private readonly ContentGraphAdapter $contentGraphAdapter
     ) {
         $this->checkpointStorage = new DbalCheckpointStorage(
             $this->dbal,
@@ -118,14 +118,14 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
             $this->dbal->getSchemaManager()->tablesExist([$legacyWorkspaceTableName])
             && !$this->dbal->getSchemaManager()->tablesExist([$this->tableNames->workspace()])
         ) {
-            $statements[] = 'INSERT INTO ' . $this->tableNames->workspace() . ' (workspacename, baseworkspacename, currentcontentstreamid, status) SELECT workspacename, baseworkspacename, currentcontentstreamid, status FROM ' . $legacyWorkspaceTableName;
+            $statements[] = 'INSERT INTO ' . $this->tableNames->workspace() . ' (name, baseWorkspaceName, currentContentStreamId, status) SELECT workspaceName AS name, baseWorkspaceName, currentContentStreamId, status FROM ' . $legacyWorkspaceTableName;
         }
         $legacyContentStreamTableName = str_replace('_p_graph_contentstream', '_p_contentstream', $this->tableNames->contentStream());
         if (
             $this->dbal->getSchemaManager()->tablesExist([$legacyContentStreamTableName])
             && !$this->dbal->getSchemaManager()->tablesExist([$this->tableNames->contentStream()])
         ) {
-            $statements[] = 'INSERT INTO ' . $this->tableNames->contentStream() . ' (contentStreamId, version, sourceContentStreamId, state, removed) SELECT contentStreamId, version, sourceContentStreamId, state, removed FROM ' . $legacyContentStreamTableName;
+            $statements[] = 'INSERT INTO ' . $this->tableNames->contentStream() . ' (id, version, sourceContentStreamId, status, removed) SELECT contentStreamId AS id, version, sourceContentStreamId, state AS status, removed FROM ' . $legacyContentStreamTableName;
         }
         // /MIGRATION
 
@@ -183,9 +183,9 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         return $this->checkpointStorage;
     }
 
-    public function getState(): ContentGraphFinder
+    public function getState(): ContentGraphAdapter
     {
-        return $this->contentGraphFinder;
+        return $this->contentGraphAdapter;
     }
 
     public function canHandle(EventInterface $event): bool
@@ -268,12 +268,12 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
 
     private function whenContentStreamWasClosed(ContentStreamWasClosed $event): void
     {
-        $this->updateContentStreamState($event->contentStreamId, ContentStreamState::STATE_CLOSED);
+        $this->updateContentStreamStatus($event->contentStreamId, ContentStreamStatus::CLOSED);
     }
 
     private function whenContentStreamWasCreated(ContentStreamWasCreated $event): void
     {
-        $this->createContentStream($event->contentStreamId, ContentStreamState::STATE_CREATED);
+        $this->createContentStream($event->contentStreamId, ContentStreamStatus::CREATED);
     }
 
     private function whenContentStreamWasForked(ContentStreamWasForked $event): void
@@ -312,7 +312,7 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         // NOTE: as reference edges are attached to Relation Anchor Points (and they are lazily copy-on-written),
         // we do not need to copy reference edges here (but we need to do it during copy on write).
 
-        $this->createContentStream($event->newContentStreamId, ContentStreamState::STATE_FORKED);
+        $this->createContentStream($event->newContentStreamId, ContentStreamStatus::FORKED, $event->sourceContentStreamId);
     }
 
     private function whenContentStreamWasRemoved(ContentStreamWasRemoved $event): void
@@ -362,7 +362,7 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
 
     private function whenContentStreamWasReopened(ContentStreamWasReopened $event): void
     {
-        $this->updateContentStreamState($event->contentStreamId, $event->previousState);
+        $this->updateContentStreamStatus($event->contentStreamId, $event->previousState);
     }
 
     private function whenDimensionShineThroughWasAdded(DimensionShineThroughWasAdded $event): void
@@ -719,7 +719,7 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         $this->createWorkspace($event->workspaceName, null, $event->newContentStreamId);
 
         // the content stream is in use now
-        $this->updateContentStreamState($event->newContentStreamId, ContentStreamState::STATE_IN_USE_BY_WORKSPACE);
+        $this->updateContentStreamStatus($event->newContentStreamId, ContentStreamStatus::IN_USE_BY_WORKSPACE);
     }
 
     private function whenSubtreeWasTagged(SubtreeWasTagged $event): void
@@ -740,7 +740,7 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
     private function whenWorkspaceRebaseFailed(WorkspaceRebaseFailed $event): void
     {
         $this->markWorkspaceAsOutdatedConflict($event->workspaceName);
-        $this->updateContentStreamState($event->candidateContentStreamId, ContentStreamState::STATE_REBASE_ERROR);
+        $this->updateContentStreamStatus($event->candidateContentStreamId, ContentStreamStatus::REBASE_ERROR);
     }
 
     private function whenWorkspaceWasCreated(WorkspaceWasCreated $event): void
@@ -748,7 +748,7 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         $this->createWorkspace($event->workspaceName, $event->baseWorkspaceName, $event->newContentStreamId);
 
         // the content stream is in use now
-        $this->updateContentStreamState($event->newContentStreamId, ContentStreamState::STATE_IN_USE_BY_WORKSPACE);
+        $this->updateContentStreamStatus($event->newContentStreamId, ContentStreamStatus::IN_USE_BY_WORKSPACE);
     }
 
     private function whenWorkspaceWasDiscarded(WorkspaceWasDiscarded $event): void
@@ -758,9 +758,9 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         $this->markDependentWorkspacesAsOutdated($event->workspaceName);
 
         // the new content stream is in use now
-        $this->updateContentStreamState($event->newContentStreamId, ContentStreamState::STATE_IN_USE_BY_WORKSPACE);
+        $this->updateContentStreamStatus($event->newContentStreamId, ContentStreamStatus::IN_USE_BY_WORKSPACE);
         // the previous content stream is no longer in use
-        $this->updateContentStreamState($event->previousContentStreamId, ContentStreamState::STATE_NO_LONGER_IN_USE);
+        $this->updateContentStreamStatus($event->previousContentStreamId, ContentStreamStatus::NO_LONGER_IN_USE);
     }
 
     private function whenWorkspaceWasPartiallyDiscarded(WorkspaceWasPartiallyDiscarded $event): void
@@ -769,10 +769,10 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         $this->markDependentWorkspacesAsOutdated($event->workspaceName);
 
         // the new content stream is in use now
-        $this->updateContentStreamState($event->newContentStreamId, ContentStreamState::STATE_IN_USE_BY_WORKSPACE);
+        $this->updateContentStreamStatus($event->newContentStreamId, ContentStreamStatus::IN_USE_BY_WORKSPACE);
 
         // the previous content stream is no longer in use
-        $this->updateContentStreamState($event->previousContentStreamId, ContentStreamState::STATE_NO_LONGER_IN_USE);
+        $this->updateContentStreamStatus($event->previousContentStreamId, ContentStreamStatus::NO_LONGER_IN_USE);
     }
 
     private function whenWorkspaceWasPartiallyPublished(WorkspaceWasPartiallyPublished $event): void
@@ -787,10 +787,10 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         $this->markDependentWorkspacesAsOutdated($event->sourceWorkspaceName);
 
         // the new content stream is in use now
-        $this->updateContentStreamState($event->newSourceContentStreamId, ContentStreamState::STATE_IN_USE_BY_WORKSPACE);
+        $this->updateContentStreamStatus($event->newSourceContentStreamId, ContentStreamStatus::IN_USE_BY_WORKSPACE);
 
         // the previous content stream is no longer in use
-        $this->updateContentStreamState($event->previousSourceContentStreamId, ContentStreamState::STATE_NO_LONGER_IN_USE);
+        $this->updateContentStreamStatus($event->previousSourceContentStreamId, ContentStreamStatus::NO_LONGER_IN_USE);
     }
 
     private function whenWorkspaceWasPublished(WorkspaceWasPublished $event): void
@@ -805,10 +805,10 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         $this->markDependentWorkspacesAsOutdated($event->sourceWorkspaceName);
 
         // the new content stream is in use now
-        $this->updateContentStreamState($event->newSourceContentStreamId, ContentStreamState::STATE_IN_USE_BY_WORKSPACE);
+        $this->updateContentStreamStatus($event->newSourceContentStreamId, ContentStreamStatus::IN_USE_BY_WORKSPACE);
 
         // the previous content stream is no longer in use
-        $this->updateContentStreamState($event->previousSourceContentStreamId, ContentStreamState::STATE_NO_LONGER_IN_USE);
+        $this->updateContentStreamStatus($event->previousSourceContentStreamId, ContentStreamStatus::NO_LONGER_IN_USE);
     }
 
     private function whenWorkspaceWasRebased(WorkspaceWasRebased $event): void
@@ -820,10 +820,10 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
         $this->markWorkspaceAsUpToDate($event->workspaceName);
 
         // the new content stream is in use now
-        $this->updateContentStreamState($event->newContentStreamId, ContentStreamState::STATE_IN_USE_BY_WORKSPACE);
+        $this->updateContentStreamStatus($event->newContentStreamId, ContentStreamStatus::IN_USE_BY_WORKSPACE);
 
         // the previous content stream is no longer in use
-        $this->updateContentStreamState($event->previousContentStreamId, ContentStreamState::STATE_NO_LONGER_IN_USE);
+        $this->updateContentStreamStatus($event->previousContentStreamId, ContentStreamStatus::NO_LONGER_IN_USE);
     }
 
     private function whenWorkspaceWasRemoved(WorkspaceWasRemoved $event): void
@@ -854,6 +854,7 @@ final class DoctrineDbalContentGraphProjection implements ProjectionInterface, W
             $this->dbal->executeQuery('TRUNCATE table ' . $this->tableNames->referenceRelation());
             $this->dbal->executeQuery('TRUNCATE table ' . $this->tableNames->dimensionSpacePoints());
             $this->dbal->executeQuery('TRUNCATE table ' . $this->tableNames->workspace());
+            $this->dbal->executeQuery('TRUNCATE table ' . $this->tableNames->contentStream());
         } catch (DbalException $e) {
             throw new \RuntimeException(sprintf('Failed to truncate database tables for projection %s: %s', self::class, $e->getMessage()), 1716478318, $e);
         }

@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Neos\Neos\Domain\Workspace;
 
 use Neos\ContentRepository\Core\ContentRepository;
+use Neos\ContentRepository\Core\DimensionSpace\DimensionSpacePoint;
 use Neos\ContentRepository\Core\Feature\WorkspaceModification\Command\ChangeBaseWorkspace;
 use Neos\ContentRepository\Core\Feature\WorkspacePublication\Command\DiscardIndividualNodesFromWorkspace;
 use Neos\ContentRepository\Core\Feature\WorkspacePublication\Command\DiscardWorkspace;
@@ -28,7 +29,7 @@ use Neos\ContentRepository\Core\NodeType\NodeTypeName;
 use Neos\ContentRepository\Core\Projection\ContentGraph\Filter\FindClosestNodeFilter;
 use Neos\ContentRepository\Core\Projection\ContentGraph\NodeAggregate;
 use Neos\ContentRepository\Core\Projection\ContentGraph\VisibilityConstraints;
-use Neos\ContentRepository\Core\Projection\Workspace\WorkspaceStatus;
+use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceStatus;
 use Neos\ContentRepository\Core\SharedModel\ContentRepository\ContentRepositoryId;
 use Neos\ContentRepository\Core\SharedModel\Exception\NodeAggregateCurrentlyDoesNotExist;
 use Neos\ContentRepository\Core\SharedModel\Exception\WorkspaceDoesNotExist;
@@ -46,7 +47,7 @@ use Neos\Neos\PendingChangesProjection\ChangeFinder;
  *
  * Provides a high-level API to evaluate, publish or discard changes in a given workspace.
  * Uses the low-level content repository workspace read model for information retrieval,
- * {@see \Neos\ContentRepository\Core\Projection\Workspace\Workspace}
+ * {@see \Neos\ContentRepository\Core\SharedModel\Workspace\Workspace}
  *
  * This model is mutable and will for example update itself after publishing, or changing the base workspace.
  * Mutations in the content repository that are not triggered by this model (by using the low level API) will not be reflected.

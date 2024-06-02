@@ -27,13 +27,11 @@ use Neos\ContentRepository\Core\Projection\ContentGraph\Filter\FindAncestorNodes
 use Neos\ContentRepository\Core\Projection\ContentGraph\Node;
 use Neos\ContentRepository\Core\Projection\ContentGraph\Nodes;
 use Neos\ContentRepository\Core\Projection\ContentGraph\VisibilityConstraints;
-use Neos\ContentRepository\Core\Projection\Workspace\Workspace;
 use Neos\ContentRepository\Core\SharedModel\Node\NodeName;
 use Neos\ContentRepository\Core\SharedModel\User\UserId;
 use Neos\ContentRepository\Core\SharedModel\Workspace\ContentStreamId;
-use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceDescription;
+use Neos\ContentRepository\Core\SharedModel\Workspace\Workspace;
 use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceName;
-use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceTitle;
 use Neos\ContentRepositoryRegistry\ContentRepositoryRegistry;
 use Neos\Diff\Diff;
 use Neos\Diff\Renderer\Html\HtmlArrayRenderer;
@@ -127,12 +125,10 @@ class WorkspacesController extends AbstractModuleController
                 'canPublish' => false,
                 'canManage' => false,
                 'canDelete' => false,
-                'workspaceOwnerHumanReadable' => $userWorkspace->workspaceOwner ? $this->domainUserService->findByUserIdentifier(UserId::fromString($userWorkspace->workspaceOwner))?->getLabel() : null
             ]
         ];
 
         foreach ($contentRepository->getWorkspaces() as $workspace) {
-            /** @var \Neos\ContentRepository\Core\Projection\Workspace\Workspace $workspace */
             // FIXME: This check should be implemented through a specialized Workspace Privilege or something similar
             if (!$workspace->isPersonalWorkspace() && ($workspace->isInternalWorkspace() || $this->domainUserService->currentUserCanManageWorkspace($workspace))) {
                 $workspaceName = $workspace->workspaceName->value;
@@ -1100,5 +1096,14 @@ class WorkspacesController extends AbstractModuleController
         $baseWorkspace = $contentRepository->findWorkspaceByName($baseWorkspaceName);
 
         return $baseWorkspace;
+    }
+
+
+    /**
+     * Checks if this workspace is a user's personal workspace
+     */
+    private static function isPersonalWorkspace(WorkspaceName $workspaceName): bool
+    {
+        return str_starts_with($workspaceName->value, 'user-');
     }
 }

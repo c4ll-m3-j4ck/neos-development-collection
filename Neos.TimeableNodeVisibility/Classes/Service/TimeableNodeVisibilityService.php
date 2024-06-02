@@ -14,7 +14,7 @@ use Neos\ContentRepository\Core\Projection\ContentGraph\Filter\PropertyValue\Cri
 use Neos\ContentRepository\Core\Projection\ContentGraph\Filter\PropertyValue\Criteria\PropertyValueLessThanOrEqual;
 use Neos\ContentRepository\Core\Projection\ContentGraph\Node;
 use Neos\ContentRepository\Core\Projection\ContentGraph\VisibilityConstraints;
-use Neos\ContentRepository\Core\Projection\Workspace\Workspace;
+use Neos\ContentRepository\Core\SharedModel\Workspace\Workspace;
 use Neos\ContentRepository\Core\SharedModel\ContentRepository\ContentRepositoryId;
 use Neos\ContentRepository\Core\SharedModel\Exception\RootNodeAggregateDoesNotExist;
 use Neos\ContentRepository\Core\SharedModel\Exception\WorkspaceDoesNotExist;

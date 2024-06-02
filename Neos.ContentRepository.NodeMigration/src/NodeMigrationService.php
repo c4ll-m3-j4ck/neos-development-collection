@@ -8,12 +8,10 @@ use Neos\ContentRepository\Core\ContentRepository;
 use Neos\ContentRepository\Core\Factory\ContentRepositoryServiceInterface;
 use Neos\ContentRepository\Core\Feature\WorkspaceCreation\Command\CreateWorkspace;
 use Neos\ContentRepository\Core\Projection\ContentGraph\NodeAggregate;
-use Neos\ContentRepository\Core\Projection\Workspace\Workspace;
+use Neos\ContentRepository\Core\SharedModel\Workspace\Workspace;
 use Neos\ContentRepository\Core\SharedModel\Exception\WorkspaceDoesNotExist;
 use Neos\ContentRepository\Core\SharedModel\Workspace\ContentStreamId;
-use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceDescription;
 use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceName;
-use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceTitle;
 use Neos\ContentRepository\NodeMigration\Command\ExecuteMigration;
 use Neos\ContentRepository\NodeMigration\Filter\FiltersFactory;
 use Neos\ContentRepository\NodeMigration\Filter\InvalidMigrationFilterSpecified;
@@ -74,8 +72,6 @@ readonly class NodeMigrationService implements ContentRepositoryServiceInterface
                 CreateWorkspace::create(
                     $workspaceNameForWriting,
                     $workspace->workspaceName,
-                    WorkspaceTitle::fromString($contentStreamForWriting->value),
-                    WorkspaceDescription::fromString(''),
                     $contentStreamForWriting,
                 )
             );

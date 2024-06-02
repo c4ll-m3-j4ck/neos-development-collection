@@ -15,12 +15,13 @@ declare(strict_types=1);
 namespace Neos\Neos\Domain\Workspace;
 
 use Neos\ContentRepository\Core\ContentRepository;
-use Neos\ContentRepository\Core\Projection\Workspace\Workspace as ContentRepositoryWorkspace;
+use Neos\ContentRepository\Core\SharedModel\Workspace\Workspace as ContentRepositoryWorkspace;
 use Neos\ContentRepository\Core\SharedModel\ContentRepository\ContentRepositoryId;
 use Neos\ContentRepository\Core\SharedModel\Exception\WorkspaceDoesNotExist;
 use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceName;
 use Neos\ContentRepositoryRegistry\ContentRepositoryRegistry;
 use Neos\Flow\Annotations as Flow;
+use Neos\Neos\Domain\Service\WorkspaceNameBuilder;
 
 /**
  * Neos' provider for its own workspace instances
@@ -59,6 +60,15 @@ final class WorkspaceProvider
             $contentRepositoryWorkspace->baseWorkspaceName,
             $contentRepository
         );
+    }
+
+    public function provideForAccountIdentifier(
+        ContentRepositoryId $contentRepositoryId,
+        string $accountIdentifier,
+    ): Workspace {
+
+        $workspaceName = WorkspaceNameBuilder::fromAccountIdentifier($accountIdentifier);
+        return $this->provideForWorkspaceName($contentRepositoryId, $workspaceName);
     }
 
     private function requireContentRepositoryWorkspace(

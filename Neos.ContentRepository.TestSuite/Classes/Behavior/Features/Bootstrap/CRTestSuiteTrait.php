@@ -25,13 +25,13 @@ use Neos\ContentRepository\Core\Projection\ContentGraph\Filter\FindSubtreeFilter
 use Neos\ContentRepository\Core\Projection\ContentGraph\Filter\NodeType\NodeTypeCriteria;
 use Neos\ContentRepository\Core\Projection\ContentGraph\Subtree;
 use Neos\ContentRepository\Core\Projection\ContentGraph\VisibilityConstraints;
-use Neos\ContentRepository\Core\Projection\Workspace\Workspace;
+use Neos\ContentRepository\Core\SharedModel\Workspace\Workspace;
 use Neos\ContentRepository\Core\Service\ContentStreamPruner;
 use Neos\ContentRepository\Core\Service\ContentStreamPrunerFactory;
 use Neos\ContentRepository\Core\SharedModel\Exception\RootNodeAggregateDoesNotExist;
 use Neos\ContentRepository\Core\SharedModel\Node\NodeAggregateId;
 use Neos\ContentRepository\Core\SharedModel\Workspace\ContentStreamId;
-use Neos\ContentRepository\Core\SharedModel\Workspace\ContentStreamState;
+use Neos\ContentRepository\Core\SharedModel\Workspace\ContentStreamStatus;
 use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceName;
 use Neos\ContentRepository\TestSuite\Behavior\Features\Bootstrap\Features\ContentStreamClosing;
 use Neos\ContentRepository\TestSuite\Behavior\Features\Bootstrap\Features\ContentStreamForking;
@@ -251,28 +251,37 @@ trait CRTestSuiteTrait
     }
 
     /**
-     * @Then the content stream :contentStreamId has state :expectedState
+     * @Then the content stream :contentStreamId has status :expectedState
      */
-    public function theContentStreamHasState(string $contentStreamId, string $expectedState): void
+    public function theContentStreamHasStatus(string $contentStreamId, string $expectedStatus): void
     {
-        $contentStreamId = ContentStreamId::fromString($contentStreamId);
-        $contentStreamFinder = $this->currentContentRepository->getContentStreamFinder();
-
-        $actual = $contentStreamFinder->findStateForContentStream($contentStreamId);
-        Assert::assertSame(ContentStreamState::tryFrom($expectedState), $actual);
+        $contentStream = $this->currentContentRepository->findContentStreamById(ContentStreamId::fromString($contentStreamId));
+        if ($contentStream === null) {
+            Assert::fail(sprintf('Expected content stream "%s" to have status "%s" but it does not exist', $contentStreamId, $expectedStatus));
+        }
+        Assert::assertSame(ContentStreamStatus::tryFrom($expectedStatus), $contentStream->status);
     }
 
     /**
-     * @Then the current content stream has state :expectedState
+     * @Then the current content stream has status :expectedStatus
      */
-    public function theCurrentContentStreamHasState(string $expectedState): void
+    public function theCurrentContentStreamHasStatus(string $expectedStatus): void
     {
-        $this->theContentStreamHasState(
+        $this->theContentStreamHasStatus(
             $this->currentContentRepository
                 ->findWorkspaceByName($this->currentWorkspaceName)
                 ->currentContentStreamId->value,
-            $expectedState
+            $expectedStatus
         );
+    }
+
+    /**
+     * @Then the content stream :contentStreamId does not exist
+     */
+    public function theContentStreamDoesNotExist(string $contentStreamId): void
+    {
+        $contentStream = $this->currentContentRepository->findContentStreamById(ContentStreamId::fromString($contentStreamId));
+        Assert::assertNull($contentStream, sprintf('Content stream "%s" was not expected to exist, but it does', $contentStreamId));
     }
 
     /**
