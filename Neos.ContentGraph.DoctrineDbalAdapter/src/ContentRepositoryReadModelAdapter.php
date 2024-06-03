@@ -16,7 +16,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception;
 use Neos\ContentGraph\DoctrineDbalAdapter\Domain\Repository\ContentGraph;
 use Neos\ContentGraph\DoctrineDbalAdapter\Domain\Repository\NodeFactory;
-use Neos\ContentRepository\Core\ContentGraphFactoryInterface;
+use Neos\ContentRepository\Core\ContentRepositoryReadModelAdapterInterface;
 use Neos\ContentRepository\Core\NodeType\NodeTypeManager;
 use Neos\ContentRepository\Core\SharedModel\ContentRepository\ContentRepositoryId;
 use Neos\ContentRepository\Core\SharedModel\Exception\WorkspaceDoesNotExist;
@@ -32,9 +32,9 @@ use Neos\EventStore\Model\Event\Version;
 
 /**
  * @internal only used inside the
- * @see ContentGraphAdapter
+ * @see ContentRepositoryReadModel
  */
-final readonly class ContentGraphFactory implements ContentGraphFactoryInterface
+final readonly class ContentRepositoryReadModelAdapter implements ContentRepositoryReadModelAdapterInterface
 {
     public function __construct(
         private Connection $dbal,
@@ -45,17 +45,7 @@ final readonly class ContentGraphFactory implements ContentGraphFactoryInterface
     ) {
     }
 
-    public function buildForWorkspace(WorkspaceName $workspaceName): ContentGraph
-    {
-        $workspace = $this->findWorkspaceByName($workspaceName);
-
-        if ($workspace === null) {
-            throw WorkspaceDoesNotExist::butWasSupposedTo($workspaceName);
-        }
-        return $this->buildForWorkspaceAndContentStream($workspace->workspaceName, $workspace->currentContentStreamId);
-    }
-
-    public function buildForWorkspaceAndContentStream(WorkspaceName $workspaceName, ContentStreamId $contentStreamId): ContentGraph
+    public function buildContentGraph(WorkspaceName $workspaceName, ContentStreamId $contentStreamId): ContentGraph
     {
         return new ContentGraph($this->dbal, $this->nodeFactory, $this->contentRepositoryId, $this->nodeTypeManager, $this->tableNames, $workspaceName, $contentStreamId);
     }
@@ -84,7 +74,7 @@ final readonly class ContentGraphFactory implements ContentGraphFactoryInterface
         return self::workspaceFromDatabaseRow($row);
     }
 
-    public function getWorkspaces(): Workspaces
+    public function findWorkspaces(): Workspaces
     {
         $workspacesStatement = <<<SQL
             SELECT
@@ -124,7 +114,7 @@ final readonly class ContentGraphFactory implements ContentGraphFactoryInterface
         return self::contentStreamFromDatabaseRow($row);
     }
 
-    public function getContentStreams(): ContentStreams
+    public function findContentStreams(): ContentStreams
     {
         $contentStreamsStatement = <<<SQL
             SELECT
@@ -140,7 +130,7 @@ final readonly class ContentGraphFactory implements ContentGraphFactoryInterface
         return ContentStreams::fromArray(array_map(self::contentStreamFromDatabaseRow(...), $rows));
     }
 
-    public function getUnusedAndRemovedContentStreamIds(): iterable
+    public function findUnusedAndRemovedContentStreamIds(): iterable
     {
         $removedContentStreamIdsStatement = <<<SQL
             WITH RECURSIVE transitiveUsedContentStreams (id) AS (

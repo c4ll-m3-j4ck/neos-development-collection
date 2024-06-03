@@ -16,6 +16,7 @@ namespace Neos\Neos\Domain\Service;
 
 use Neos\ContentRepository\Core\SharedModel\Workspace\Workspace;
 use Neos\ContentRepository\Core\SharedModel\User\UserId;
+use Neos\ContentRepository\Core\SharedModel\Workspace\WorkspaceName;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Persistence\Exception\IllegalObjectTypeException;
 use Neos\Flow\Persistence\PersistenceManagerInterface;
@@ -685,17 +686,8 @@ class UserService
      */
     public function currentUserCanPublishToWorkspace(Workspace $workspace): bool
     {
-        if ($workspace->isPublicWorkspace()) {
+        if ($workspace->workspaceName->isLive()) {
             return $this->securityContext->hasRole('Neos.Neos:LivePublisher');
-        }
-
-        $currentUser = $this->getCurrentUser();
-        $ownerIdentifier = $currentUser
-            ? $this->persistenceManager->getIdentifierByObject($currentUser)
-            : null;
-
-        if ($workspace->workspaceOwner === null || $workspace->workspaceOwner === $ownerIdentifier) {
-            return true;
         }
 
         return false;
@@ -709,14 +701,19 @@ class UserService
      */
     public function currentUserCanReadWorkspace(Workspace $workspace): bool
     {
-        if ($workspace->isPublicWorkspace()) {
+        if ($workspace->workspaceName->isLive()) {
             return true;
         }
 
         $currentUser = $this->getCurrentUser();
-
-        return $currentUser && $workspace->workspaceOwner
-            === $this->persistenceManager->getIdentifierByObject($currentUser);
+        if ($currentUser === null) {
+            return false;
+        }
+        $username = $this->getUsername($currentUser);
+        if ($username === null) {
+            return false;
+        }
+        return WorkspaceNameBuilder::fromAccountIdentifier($username)->equals($workspace->workspaceName);
     }
 
     /**
@@ -727,29 +724,29 @@ class UserService
      */
     public function currentUserCanManageWorkspace(Workspace $workspace): bool
     {
-        if ($workspace->isPersonalWorkspace()) {
+        if (self::isPersonalWorkspace($workspace->workspaceName)) {
             return false;
         }
-
-        if ($workspace->isInternalWorkspace()) {
-            return $this->privilegeManager->isPrivilegeTargetGranted(
-                'Neos.Neos:Backend.Module.Management.Workspaces.ManageInternalWorkspaces'
-            );
-        }
-
-
-        $currentUser = $this->getCurrentUser();
-        if ($workspace->isPrivateWorkspace() && $currentUser !== null && $workspace->workspaceOwner === $this->persistenceManager->getIdentifierByObject($currentUser)) {
-            return $this->privilegeManager->isPrivilegeTargetGranted(
-                'Neos.Neos:Backend.Module.Management.Workspaces.ManageOwnWorkspaces'
-            );
-        }
-
-        if ($workspace->isPrivateWorkspace() &&  $currentUser !== null && $workspace->workspaceOwner !== $this->persistenceManager->getIdentifierByObject($currentUser)) {
-            return $this->privilegeManager->isPrivilegeTargetGranted(
-                'Neos.Neos:Backend.Module.Management.Workspaces.ManageAllPrivateWorkspaces'
-            );
-        }
+// TODO re-implement
+//        if ($workspace->isInternalWorkspace()) {
+//            return $this->privilegeManager->isPrivilegeTargetGranted(
+//                'Neos.Neos:Backend.Module.Management.Workspaces.ManageInternalWorkspaces'
+//            );
+//        }
+//
+//
+//        $currentUser = $this->getCurrentUser();
+//        if ($workspace->isPrivateWorkspace() && $currentUser !== null && $workspace->workspaceOwner === $this->persistenceManager->getIdentifierByObject($currentUser)) {
+//            return $this->privilegeManager->isPrivilegeTargetGranted(
+//                'Neos.Neos:Backend.Module.Management.Workspaces.ManageOwnWorkspaces'
+//            );
+//        }
+//
+//        if ($workspace->isPrivateWorkspace() &&  $currentUser !== null && $workspace->workspaceOwner !== $this->persistenceManager->getIdentifierByObject($currentUser)) {
+//            return $this->privilegeManager->isPrivilegeTargetGranted(
+//                'Neos.Neos:Backend.Module.Management.Workspaces.ManageAllPrivateWorkspaces'
+//            );
+//        }
 
         return false;
     }
@@ -763,7 +760,7 @@ class UserService
      */
     public function currentUserCanTransferOwnershipOfWorkspace(Workspace $workspace): bool
     {
-        if ($workspace->isPersonalWorkspace()) {
+        if (self::isPersonalWorkspace($workspace->workspaceName)) {
             return false;
         }
 
@@ -971,5 +968,13 @@ class UserService
     {
         $user = $this->partyService->getAssignedPartyOfAccount($account);
         return ($user instanceof User) ? $user : null;
+    }
+
+    /**
+     * Checks if this workspace is a user's personal workspace
+     */
+    private static function isPersonalWorkspace(WorkspaceName $workspaceName): bool
+    {
+        return str_starts_with($workspaceName->value, 'user-');
     }
 }

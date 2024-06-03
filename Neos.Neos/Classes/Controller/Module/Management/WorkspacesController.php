@@ -130,7 +130,7 @@ class WorkspacesController extends AbstractModuleController
 
         foreach ($contentRepository->getWorkspaces() as $workspace) {
             // FIXME: This check should be implemented through a specialized Workspace Privilege or something similar
-            if (!$workspace->isPersonalWorkspace() && ($workspace->isInternalWorkspace() || $this->domainUserService->currentUserCanManageWorkspace($workspace))) {
+            if ($this->domainUserService->currentUserCanManageWorkspace($workspace)) {
                 $workspaceName = $workspace->workspaceName->value;
                 $dependentWorkspaces = $contentRepository->getWorkspaces()->filter(
                     static fn (Workspace $potentiallyDependentWorkspace) => $potentiallyDependentWorkspace->baseWorkspaceName?->equals($workspace->workspaceName) ?? false
@@ -143,7 +143,6 @@ class WorkspacesController extends AbstractModuleController
                 $workspacesAndCounts[$workspaceName]['canManage']
                     = $this->domainUserService->currentUserCanManageWorkspace($workspace);
                 $workspacesAndCounts[$workspaceName]['dependentWorkspacesCount'] = $dependentWorkspaces->count();
-                $workspacesAndCounts[$workspaceName]['workspaceOwnerHumanReadable'] = $workspace->workspaceOwner ? $this->domainUserService->findByUserIdentifier(UserId::fromString($workspace->workspaceOwner))?->getLabel() : null;
             }
         }
 
@@ -169,7 +168,6 @@ class WorkspacesController extends AbstractModuleController
         }
         $this->view->assignMultiple([
             'selectedWorkspace' => $workspaceObj,
-            'selectedWorkspaceLabel' => $workspaceObj->workspaceTitle,
             'baseWorkspaceName' => $workspaceObj->baseWorkspaceName,
             'baseWorkspaceLabel' => $workspaceObj->baseWorkspaceName, // TODO fallback to title
             // TODO $this->domainUserService->currentUserCanPublishToWorkspace($workspace->getBaseWorkspace()),
@@ -177,245 +175,6 @@ class WorkspacesController extends AbstractModuleController
             'siteChanges' => $this->computeSiteChanges($workspaceObj, $contentRepository),
             'contentDimensions' => $workspacesControllerInternals->getContentDimensionsOrderedByPriority()
         ]);
-    }
-
-    public function newAction(): void
-    {
-        $contentRepositoryId = SiteDetectionResult::fromRequest($this->request->getHttpRequest())
-            ->contentRepositoryId;
-        $contentRepository = $this->contentRepositoryRegistry->get($contentRepositoryId);
-
-        $this->view->assign('baseWorkspaceOptions', $this->prepareBaseWorkspaceOptions($contentRepository));
-    }
-
-    /**
-     * Create a workspace
-     *
-     * @Flow\Validate(argumentName="title", type="\Neos\Flow\Validation\Validator\NotEmptyValidator")
-     * @param WorkspaceTitle $title Human friendly title of the workspace, for example "Christmas Campaign"
-     * @param WorkspaceName $baseWorkspace Workspace the new workspace should be based on
-     * @param string $visibility Visibility of the new workspace, must be either "internal" or "shared"
-     * @param WorkspaceDescription $description A description explaining the purpose of the new workspace
-     * @return void
-     * @throws \Neos\Flow\Mvc\Exception\StopActionException
-     */
-    public function createAction(
-        WorkspaceTitle $title,
-        WorkspaceName $baseWorkspace,
-        string $visibility,
-        WorkspaceDescription $description,
-    ): void {
-        $contentRepositoryId = SiteDetectionResult::fromRequest($this->request->getHttpRequest())
-            ->contentRepositoryId;
-        $contentRepository = $this->contentRepositoryRegistry->get($contentRepositoryId);
-
-        $workspaceName = WorkspaceName::fromString(
-            WorkspaceName::transliterateFromString($title->value)->value . '-'
-            . substr(base_convert(microtime(false), 10, 36), -5, 5)
-        );
-        while ($contentRepository->findWorkspaceByName($workspaceName) instanceof Workspace) {
-            $workspaceName = WorkspaceName::fromString(
-                WorkspaceName::transliterateFromString($title->value)->value . '-'
-                . substr(base_convert(microtime(false), 10, 36), -5, 5)
-            );
-        }
-
-        $currentUserIdentifier = $this->domainUserService->getCurrentUserIdentifier();
-        if (is_null($currentUserIdentifier)) {
-            throw new \InvalidArgumentException('Cannot create workspace without a current user', 1652155039);
-        }
-
-        try {
-            $contentRepository->handle(
-                CreateWorkspace::create(
-                    $workspaceName,
-                    $baseWorkspace,
-                    $title,
-                    $description,
-                    ContentStreamId::create(),
-                    $visibility === 'private' ? $currentUserIdentifier : null
-                )
-            );
-        } catch (WorkspaceAlreadyExists $exception) {
-            $this->addFlashMessage(
-                $this->getModuleLabel('workspaces.workspaceWithThisTitleAlreadyExists'),
-                '',
-                Message::SEVERITY_WARNING
-            );
-            $this->redirect('new');
-        }
-
-        $this->redirect('index');
-    }
-
-    /**
-     * Edit a workspace
-     */
-    public function editAction(WorkspaceName $workspaceName): void
-    {
-        $contentRepositoryId = SiteDetectionResult::fromRequest($this->request->getHttpRequest())
-            ->contentRepositoryId;
-        $contentRepository = $this->contentRepositoryRegistry->get($contentRepositoryId);
-
-        $workspace = $contentRepository->findWorkspaceByName($workspaceName);
-        if (is_null($workspace)) {
-            // @todo add flash message
-            $this->redirect('index');
-        }
-        $this->view->assign('workspace', $workspace);
-        $this->view->assign('baseWorkspaceOptions', $this->prepareBaseWorkspaceOptions($contentRepository, $workspace));
-        // TODO: $this->view->assign('disableBaseWorkspaceSelector',
-        // $this->publishingService->getUnpublishedNodesCount($workspace) > 0);
-        $this->view->assign(
-            'showOwnerSelector',
-            $this->domainUserService->currentUserCanTransferOwnershipOfWorkspace($workspace)
-        );
-        $this->view->assign('ownerOptions', $this->prepareOwnerOptions());
-    }
-
-    /**
-     * Update a workspace
-     *
-     * @Flow\Validate(argumentName="title", type="\Neos\Flow\Validation\Validator\NotEmptyValidator")
-     * @param WorkspaceName $workspaceName
-     * @param WorkspaceTitle $title Human friendly title of the workspace, for example "Christmas Campaign"
-     * @param WorkspaceDescription $description A description explaining the purpose of the new workspace
-     * @param string $workspaceOwner Id of the owner of the workspace
-     * @return void
-     */
-    public function updateAction(
-        WorkspaceName $workspaceName,
-        WorkspaceTitle $title,
-        WorkspaceDescription $description,
-        ?string $workspaceOwner
-    ): void {
-        $contentRepositoryId = SiteDetectionResult::fromRequest($this->request->getHttpRequest())
-            ->contentRepositoryId;
-        $contentRepository = $this->contentRepositoryRegistry->get($contentRepositoryId);
-
-        if ($title->value === '') {
-            $title = WorkspaceTitle::fromString($workspaceName->value);
-        }
-
-        $workspace = $contentRepository->findWorkspaceByName($workspaceName);
-        if ($workspace === null) {
-            $this->addFlashMessage(
-                $this->getModuleLabel('workspaces.workspaceDoesNotExist'),
-                '',
-                Message::SEVERITY_ERROR
-            );
-            $this->redirect('index');
-        }
-
-        $this->addFlashMessage($this->translator->translateById(
-            'workspaces.workspaceHasBeenUpdated',
-            [$title->value],
-            null,
-            null,
-            'Modules',
-            'Neos.Neos'
-        ) ?: 'workspaces.workspaceHasBeenUpdated');
-        $this->redirect('index');
-    }
-
-    /**
-     * Delete a workspace
-     *
-     * @param WorkspaceName $workspaceName A workspace to delete
-     * @throws IndexOutOfBoundsException
-     * @throws InvalidFormatPlaceholderException
-     * @throws StopActionException
-     * @throws DBALException
-     */
-    public function deleteAction(WorkspaceName $workspaceName): void
-    {
-        $contentRepositoryId = SiteDetectionResult::fromRequest($this->request->getHttpRequest())
-            ->contentRepositoryId;
-        $contentRepository = $this->contentRepositoryRegistry->get($contentRepositoryId);
-
-        $workspace = $contentRepository->findWorkspaceByName($workspaceName);
-        if ($workspace === null) {
-            $this->addFlashMessage(
-                $this->getModuleLabel('workspaces.workspaceDoesNotExist'),
-                '',
-                Message::SEVERITY_ERROR
-            );
-            $this->redirect('index');
-        }
-
-        if ($workspace->isPersonalWorkspace()) {
-            $this->redirect('index');
-        }
-
-        $dependentWorkspaces = $contentRepository->getWorkspaces()->filter(
-            static fn (Workspace $potentiallyDependentWorkspace) => $potentiallyDependentWorkspace->baseWorkspaceName?->equals($workspaceName) ?? false
-        );
-        if (!$dependentWorkspaces->isEmpty()) {
-            $dependentWorkspaceNames = [];
-            /** @var Workspace $dependentWorkspace */
-            foreach ($dependentWorkspaces as $dependentWorkspace) {
-                $dependentWorkspaceNames[] = $dependentWorkspace->workspaceName->value;
-            }
-
-            $message = $this->translator->translateById(
-                'workspaces.workspaceCannotBeDeletedBecauseOfDependencies',
-                [$workspace->workspaceName->value, implode(', ', $dependentWorkspaceNames)],
-                null,
-                null,
-                'Modules',
-                'Neos.Neos'
-            ) ?: 'workspaces.workspaceCannotBeDeletedBecauseOfDependencies';
-            $this->addFlashMessage($message, '', Message::SEVERITY_WARNING);
-            $this->redirect('index');
-        }
-
-        $nodesCount = 0;
-
-        try {
-            $nodesCount = $contentRepository->projectionState(ChangeFinder::class)
-                ->countByContentStreamId(
-                    $workspace->currentContentStreamId
-                );
-        } catch (\Exception $exception) {
-            $message = $this->translator->translateById(
-                'workspaces.notDeletedErrorWhileFetchingUnpublishedNodes',
-                [$workspace->workspaceTitle->value],
-                null,
-                null,
-                'Modules',
-                'Neos.Neos'
-            ) ?: 'workspaces.notDeletedErrorWhileFetchingUnpublishedNodes';
-            $this->addFlashMessage($message, '', Message::SEVERITY_WARNING);
-            $this->redirect('index');
-        }
-        if ($nodesCount > 0) {
-            $message = $this->translator->translateById(
-                'workspaces.workspaceCannotBeDeletedBecauseOfUnpublishedNodes',
-                [$workspace->workspaceTitle->value, $nodesCount],
-                $nodesCount,
-                null,
-                'Modules',
-                'Neos.Neos'
-            ) ?: 'workspaces.workspaceCannotBeDeletedBecauseOfUnpublishedNodes';
-            $this->addFlashMessage($message, '', Message::SEVERITY_WARNING);
-            $this->redirect('index');
-        }
-
-        $contentRepository->handle(
-            DeleteWorkspace::create(
-                $workspaceName,
-            )
-        );
-
-        $this->addFlashMessage($this->translator->translateById(
-            'workspaces.workspaceHasBeenRemoved',
-            [$workspace->workspaceTitle->value],
-            null,
-            null,
-            'Modules',
-            'Neos.Neos'
-        ) ?: 'workspaces.workspaceHasBeenRemoved');
-        $this->redirect('index');
     }
 
     /**
@@ -1037,55 +796,6 @@ class WorkspacesController extends AbstractModuleController
         }
     }
 
-    /**
-     * Creates an array of workspace names and their respective titles which are possible base workspaces for other
-     * workspaces.
-     * If $excludedWorkspace is set, this workspace and all its child workspaces will be excluded from the list of returned workspaces
-     *
-     * @param ContentRepository $contentRepository
-     * @param Workspace|null $excludedWorkspace
-     * @return array<string,?string>
-     */
-    protected function prepareBaseWorkspaceOptions(
-        ContentRepository $contentRepository,
-        Workspace $excludedWorkspace = null,
-    ): array {
-        $baseWorkspaceOptions = [];
-        $workspaces = $contentRepository->getWorkspaces();
-        foreach ($workspaces as $workspace) {
-
-            /** @var Workspace $workspace */
-            if (
-                !$workspace->isPersonalWorkspace()
-                && $workspace !== $excludedWorkspace
-                && ($workspace->isPublicWorkspace()
-                    || $workspace->isInternalWorkspace()
-                    || $this->domainUserService->currentUserCanManageWorkspace($workspace))
-                && (!$excludedWorkspace || $workspaces->getBaseWorkspaces($workspace->workspaceName)->get($excludedWorkspace->workspaceName) === null)
-            ) {
-                $baseWorkspaceOptions[$workspace->workspaceName->value] = $workspace->workspaceTitle->value;
-            }
-        }
-
-        return $baseWorkspaceOptions;
-    }
-
-    /**
-     * Creates an array of user names and their respective labels which are possible owners for a workspace.
-     *
-     * @return array<int|string,string>
-     */
-    protected function prepareOwnerOptions(): array
-    {
-        $ownerOptions = ['' => '-'];
-        foreach ($this->domainUserService->getUsers() as $user) {
-            /** @var User $user */
-            $ownerOptions[$this->persistenceManager->getIdentifierByObject($user)] = $user->getLabel();
-        }
-
-        return $ownerOptions;
-    }
-
     private function getBaseWorkspaceWhenSureItExists(
         Workspace $workspace,
         ContentRepository $contentRepository,
@@ -1096,14 +806,5 @@ class WorkspacesController extends AbstractModuleController
         $baseWorkspace = $contentRepository->findWorkspaceByName($baseWorkspaceName);
 
         return $baseWorkspace;
-    }
-
-
-    /**
-     * Checks if this workspace is a user's personal workspace
-     */
-    private static function isPersonalWorkspace(WorkspaceName $workspaceName): bool
-    {
-        return str_starts_with($workspaceName->value, 'user-');
     }
 }
